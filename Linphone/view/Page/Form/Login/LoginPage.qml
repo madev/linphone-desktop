@@ -82,6 +82,7 @@ LoginLayout {
 			anchors.top: parent.top
             anchors.leftMargin: Utils.getSizeWithScreenRatio(127)
 			anchors.bottom: parent.bottom
+			contentHeight: content.implicitHeight
 			ColumnLayout {
 				id: content
 				spacing: 0
@@ -106,6 +107,27 @@ LoginLayout {
                     text: qsTr("assistant_login_remote_provisioning")
 					style: ButtonStyle.secondary
 					onClicked: {fetchConfigDialog.open()}
+				}
+				BigButton {
+					Layout.preferredWidth: loginForm.width
+					Layout.preferredHeight: Utils.getSizeWithScreenRatio(47)
+					Layout.topMargin: Utils.getSizeWithScreenRatio(25)
+					text: LoginPageCpp.inviaPbxLoading ? qsTr("Authenticating...") : "Invia PBX account"
+					style: ButtonStyle.secondary
+					enabled: !LoginPageCpp.inviaPbxLoading
+					onClicked: {
+						console.debug("[LoginPage] User: Invia PBX login")
+						LoginPageCpp.loginInviaPbx()
+					}
+				}
+				Text {
+					Layout.preferredWidth: loginForm.width
+					Layout.topMargin: Utils.getSizeWithScreenRatio(10)
+					visible: LoginPageCpp.errorMessage.length > 0
+					text: LoginPageCpp.errorMessage
+					color: DefaultStyle.danger_500main
+					font.pixelSize: Typography.p2.pixelSize
+					wrapMode: Text.WordWrap
 				}
 			}
 		},

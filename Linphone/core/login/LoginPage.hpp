@@ -36,6 +36,7 @@ public:
 	Q_PROPERTY(linphone::RegistrationState registrationState READ getRegistrationState NOTIFY registrationStateChanged)
 	Q_PROPERTY(QString errorMessage READ getErrorMessage NOTIFY errorMessageChanged)
 	Q_PROPERTY(bool badIds MEMBER mBadIds NOTIFY reasonChanged)
+	Q_PROPERTY(bool inviaPbxLoading READ getInviaPbxLoading NOTIFY inviaPbxLoadingChanged)
 
 	Q_INVOKABLE void login(const QString &username,
 	                       const QString &password,
@@ -46,21 +47,28 @@ public:
 	                       QString outboundProxyAddress = QString(),
 	                       QString connectionId = QString());
 
+	Q_INVOKABLE void loginInviaPbx();
+
 	linphone::RegistrationState getRegistrationState() const;
 	void setRegistrationState(linphone::RegistrationState status);
 
 	QString getErrorMessage() const;
 	void setErrorMessage(const QString &error);
 
+	bool getInviaPbxLoading() const;
+	void setInviaPbxLoading(bool loading);
+
 signals:
 	void registrationStateChanged();
 	void errorMessageChanged(QString error);
 	void reasonChanged();
+	void inviaPbxLoadingChanged();
 
 private:
 	linphone::RegistrationState mRegistrationState = linphone::RegistrationState::None;
 	QString mErrorMessage;
 	bool mBadIds = false;
+	bool mInviaPbxLoading = false;
 
 	DECLARE_ABSTRACT_OBJECT
 };

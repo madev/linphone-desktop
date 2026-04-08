@@ -24,6 +24,7 @@
 #include "core/App.hpp"
 
 #include "model/account/AccountManager.hpp"
+#include "model/auth/InviaPbxAuthModel.hpp"
 
 DEFINE_ABSTRACT_OBJECT(LoginPage)
 
@@ -58,6 +59,94 @@ void LoginPage::setErrorMessage(const QString &error) {
 		mErrorMessage = error;
 		emit errorMessageChanged(error);
 	}
+}
+
+bool LoginPage::getInviaPbxLoading() const {
+	return mInviaPbxLoading;
+}
+
+void LoginPage::setInviaPbxLoading(bool loading) {
+	if (mInviaPbxLoading != loading) {
+		mInviaPbxLoading = loading;
+		emit inviaPbxLoadingChanged();
+	}
+}
+
+void LoginPage::loginInviaPbx() {
+	mustBeInMainThread(log().arg(Q_FUNC_INFO));
+	setErrorMessage("");
+	setInviaPbxLoading(true);
+
+	auto authModel = new InviaPbxAuthModel(this);
+
+	connect(authModel, &InviaPbxAuthModel::loginFailed, this, [this, authModel](const QString &error) {
+		setErrorMessage(error);
+		setInviaPbxLoading(false);
+		authModel->deleteLater();
+	});
+
+	connect(authModel, &InviaPbxAuthModel::credentialsFetched, this,
+	        [this, authModel](const QString &sipUsername, const QString &sipSecret, const QString &sipDomain,
+	                          const QString &sipServer) {
+		        authModel->deleteLater();
+
+		        auto registrarUri = QStringLiteral("sip:%1:5060;transport=udp").arg(sipServer);
+
+		        App::postModelAsync([=]() {
+			        AccountManager *accountManager = new AccountManager();
+			        connect(accountManager, &AccountManager::registrationStateChanged, this,
+			                [accountManager, this](linphone::RegistrationState state, linphone::Reason reason,
+			                                       QString message) mutable {
+				                setRegistrationState(state);
+				                mBadIds = reason == linphone::Reason::Forbidden;
+				                emit reasonChanged();
+				                switch (state) {
+					                case linphone::RegistrationState::Failed: {
+						                if (message.isEmpty())
+							                setErrorMessage(tr("default_account_connection_state_error_toast"));
+						                else setErrorMessage(message);
+						                setInviaPbxLoading(false);
+						                if (accountManager) {
+							                accountManager->deleteLater();
+							                accountManager = nullptr;
+						                }
+						                break;
+					                }
+					                case linphone::RegistrationState::Ok: {
+						                setInviaPbxLoading(false);
+						                if (accountManager) {
+							                accountManager->deleteLater();
+							                accountManager = nullptr;
+						                }
+						                break;
+					                }
+					                case linphone::RegistrationState::Cleared: {
+						                setInviaPbxLoading(false);
+						                if (accountManager) {
+							                accountManager->deleteLater();
+							                accountManager = nullptr;
+						                }
+						                break;
+					                }
+					                case linphone::RegistrationState::None:
+					                case linphone::RegistrationState::Progress:
+					                case linphone::RegistrationState::Refreshing:
+						                break;
+				                }
+			                });
+
+			        QString error;
+			        if (!accountManager->login(sipUsername, sipSecret, sipUsername, sipDomain,
+			                                   linphone::TransportType::Udp, &error, registrarUri)) {
+				        setErrorMessage(error);
+				        setInviaPbxLoading(false);
+				        emit accountManager->registrationStateChanged(linphone::RegistrationState::None,
+				                                                      linphone::Reason::None);
+			        }
+		        });
+	        });
+
+	authModel->startLogin();
 }
 
 void LoginPage::login(const QString &username,
