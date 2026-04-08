@@ -6,6 +6,7 @@ list(APPEND _LINPHONEAPP_SOURCES
 	model/account/AccountManagerServicesRequestModel.cpp
 
 	model/auth/OIDCModel.cpp
+	model/auth/InviaPbxAuthModel.cpp
 	
 	model/call/CallModel.cpp
 
