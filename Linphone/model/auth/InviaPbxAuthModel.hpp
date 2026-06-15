@@ -34,6 +34,10 @@ public:
 	~InviaPbxAuthModel();
 
 	void startLogin();
+	// Silently refresh the OAuth access token using a persisted refresh token, then
+	// call the firewall allow-rule endpoint. Emits `finished` when done (success or fail).
+	// No-op (still emits `finished`) if no refresh token is stored.
+	void refreshAndAllowFirewall();
 
 signals:
 	void credentialsFetched(const QString &sipUsername,
@@ -42,11 +46,14 @@ signals:
 	                        const QString &sipServer);
 	void loginFailed(const QString &errorMessage);
 	void statusMessage(const QString &message);
+	void finished();
 
 private:
 	void onOAuthGranted();
 	void fetchCredentials();
 	void createFirewallRule();
+	void persistRefreshToken(const QString &refreshToken);
+	QString loadRefreshToken() const;
 
 	QOAuth2AuthorizationCodeFlow mOAuth;
 	QNetworkAccessManager *mNetworkManager = nullptr;
