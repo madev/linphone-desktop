@@ -24,6 +24,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
+#include <QUrlQuery>
 #include <QtNetworkAuth>
 
 #include "model/core/CoreModel.hpp"
@@ -35,6 +36,8 @@ static constexpr char DefaultAuthority[] = "https://login.microsoftonline.com/in
 static constexpr char DefaultClientId[] = "927889d2-e49b-49ac-a602-800b294b5276";
 static constexpr char DefaultScope[] = "api://ad7d29f8-387f-4b04-b177-85888abf52a7/user_impersonation";
 static constexpr char DefaultApiBaseUrl[] = "https://api.it.invia.eu/usermanagement/linuxbox";
+static constexpr char ConfigSection[] = "app";
+static constexpr char RefreshTokenKey[] = "invia_oauth_refresh_token";
 
 InviaPbxAuthModel::InviaPbxAuthModel(QObject *parent) : QObject(parent) {
 	mNetworkManager = new QNetworkAccessManager(this);
@@ -78,9 +81,10 @@ void InviaPbxAuthModel::startLogin() {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
 	QSet<QByteArray> scopeTokens;
 	scopeTokens.insert(scope.toUtf8());
+	scopeTokens.insert("offline_access");
 	mOAuth.setRequestedScopeTokens(scopeTokens);
 #else
-	mOAuth.setScope(scope);
+	mOAuth.setScope(scope + " offline_access");
 #endif
 
 	connect(&mTimeout, &QTimer::timeout, this, [this]() {
@@ -174,6 +178,14 @@ void InviaPbxAuthModel::startLogin() {
 
 void InviaPbxAuthModel::onOAuthGranted() {
 	mAccessToken = mOAuth.token();
+	auto refreshToken = mOAuth.refreshToken();
+	if (!refreshToken.isEmpty()) {
+		persistRefreshToken(refreshToken);
+		lInfo() << log().arg("Refresh token persisted for future silent firewall refresh");
+	} else {
+		lWarning() << log().arg(
+		    "No refresh token returned from OAuth provider; startup firewall refresh will be skipped");
+	}
 	lInfo() << log().arg("OAuth2 token obtained, fetching SIP credentials");
 	emit statusMessage(tr("Fetching SIP credentials..."));
 	fetchCredentials();
@@ -255,5 +267,91 @@ void InviaPbxAuthModel::createFirewallRule() {
 		} else {
 			lInfo() << log().arg("Firewall allow rule created successfully");
 		}
+		emit finished();
+	});
+}
+
+void InviaPbxAuthModel::persistRefreshToken(const QString &refreshToken) {
+	auto config = CoreModel::getInstance()->getCore()->getConfig();
+	config->setString(ConfigSection, RefreshTokenKey, refreshToken.toStdString());
+	config->sync();
+}
+
+QString InviaPbxAuthModel::loadRefreshToken() const {
+	auto config = CoreModel::getInstance()->getCore()->getConfig();
+	return QString::fromStdString(config->getString(ConfigSection, RefreshTokenKey, ""));
+}
+
+void InviaPbxAuthModel::refreshAndAllowFirewall() {
+	auto refreshToken = loadRefreshToken();
+	if (refreshToken.isEmpty()) {
+		lInfo() << log().arg("No persisted Invia refresh token; skipping startup firewall refresh");
+		emit finished();
+		return;
+	}
+
+	auto config = CoreModel::getInstance()->getCore()->getConfig();
+	auto authority = QString::fromStdString(config->getString("app", "invia_oauth_authority", DefaultAuthority));
+	auto clientId = QString::fromStdString(config->getString("app", "invia_oauth_client_id", DefaultClientId));
+	auto scope = QString::fromStdString(config->getString("app", "invia_oauth_scope", DefaultScope));
+	mApiBaseUrl = QString::fromStdString(config->getString("app", "invia_api_base_url", DefaultApiBaseUrl));
+
+	lInfo() << log().arg("Refreshing Invia OAuth access token for startup firewall allow rule");
+
+	QNetworkRequest tokenRequest(QUrl(authority + "/oauth2/v2.0/token"));
+	tokenRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
+
+	QUrlQuery body;
+	body.addQueryItem("grant_type", "refresh_token");
+	body.addQueryItem("client_id", clientId);
+	body.addQueryItem("refresh_token", refreshToken);
+	body.addQueryItem("scope", scope + " offline_access");
+
+	auto reply = mNetworkManager->post(tokenRequest, body.toString(QUrl::FullyEncoded).toUtf8());
+	connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+		reply->deleteLater();
+
+		if (reply->error() != QNetworkReply::NoError) {
+			int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+			auto body = reply->readAll();
+			lWarning() << log().arg("Token refresh failed, HTTP status:") << httpStatus << reply->errorString();
+			lWarning() << log().arg("Token refresh error body:") << body;
+			// Refresh token rejected by IdP (revoked, rotated out, or expired beyond grace).
+			// Fall back to interactive browser login to re-bootstrap the token. Network errors
+			// (httpStatus == 0) must NOT trigger a browser popup.
+			if (httpStatus == 400 || httpStatus == 401) {
+				lInfo() << log().arg("Refresh token rejected by IdP, falling back to interactive login");
+				startLogin();
+				return;
+			}
+			emit finished();
+			return;
+		}
+
+		auto doc = QJsonDocument::fromJson(reply->readAll());
+		if (doc.isNull() || !doc.isObject()) {
+			lWarning() << log().arg("Token refresh returned invalid JSON");
+			emit finished();
+			return;
+		}
+
+		auto obj = doc.object();
+		auto accessToken = obj["access_token"].toString();
+		auto newRefreshToken = obj["refresh_token"].toString();
+
+		if (accessToken.isEmpty()) {
+			lWarning() << log().arg("Token refresh response missing access_token");
+			emit finished();
+			return;
+		}
+
+		mAccessToken = accessToken;
+		// Azure AD rotates refresh tokens — persist the new one if returned.
+		if (!newRefreshToken.isEmpty()) {
+			persistRefreshToken(newRefreshToken);
+		}
+
+		lInfo() << log().arg("Access token refreshed, calling firewall allow rule API");
+		createFirewallRule();
 	});
 }

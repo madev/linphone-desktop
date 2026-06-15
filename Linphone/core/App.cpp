@@ -92,6 +92,7 @@
 #include "core/translator/DefaultTranslatorCore.hpp"
 #include "core/variant/VariantList.hpp"
 #include "core/videoSource/VideoSourceDescriptorGui.hpp"
+#include "model/auth/InviaPbxAuthModel.hpp"
 #include "model/friend/FriendsManager.hpp"
 #include "model/object/VariantObject.hpp"
 #include "model/tool/ToolModel.hpp"
@@ -569,7 +570,7 @@ void App::setSelf(QSharedPointer<App>(me)) {
 	                                         });
 	mCoreModelConnection->makeConnectToCore(&App::lForceOidcTimeout, [this] {
 		qDebug() << "App: force oidc timeout";
-		mCoreModelConnection->invokeToModel([this] { emit CoreModel::getInstance()->forceOidcTimeout(); });
+		mCoreModelConnection->invokeToModel([this] { emit CoreModel::getInstance() -> forceOidcTimeout(); });
 	});
 	mCoreModelConnection->makeConnectToModel(&CoreModel::timeoutTimerStarted, [this]() {
 		qDebug() << "App: oidc timer started";
@@ -766,6 +767,20 @@ void App::initCore() {
 					    else {
 						    mAccountList->setInitialized(false);
 						    mAccountList->lUpdate(true);
+					    }
+					    // Refresh the Invia PBX firewall allow-rule on app startup.
+					    // The rule expires nightly when the PBX restarts; the OAuth refresh
+					    // token persisted at first login lets us do this silently. AccountProxy
+					    // may have created mAccountList earlier via QML, so this is gated on a
+					    // one-shot bool rather than mAccountList state.
+					    static bool sFirewallRefreshed = false;
+					    if (!sFirewallRefreshed) {
+						    sFirewallRefreshed = true;
+						    auto inviaAuth = new InviaPbxAuthModel(this);
+						    connect(inviaAuth, &InviaPbxAuthModel::finished, inviaAuth, &QObject::deleteLater);
+						    connect(inviaAuth, &InviaPbxAuthModel::loginFailed, inviaAuth,
+						            [inviaAuth](const QString &) { inviaAuth->deleteLater(); });
+						    inviaAuth->refreshAndAllowFirewall();
 					    }
 					    connect(mAccountList.get(), &AccountList::defaultAccountChanged, this,
 					            &App::currentAccountChanged);
