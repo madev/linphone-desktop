@@ -109,6 +109,7 @@ public:
 	Q_PROPERTY(QString remoteName MEMBER mRemoteName NOTIFY remoteNameChanged)
 	Q_PROPERTY(QString remoteAddress READ getRemoteAddress CONSTANT)
 	Q_PROPERTY(QString localAddress READ getLocalAddress CONSTANT)
+	Q_PROPERTY(int acceptAfterSeconds READ getAcceptAfterSeconds CONSTANT)
 	Q_PROPERTY(bool tokenVerified READ getTokenVerified WRITE setTokenVerified NOTIFY securityUpdated)
 	Q_PROPERTY(bool isMismatch READ isMismatch WRITE setIsMismatch NOTIFY securityUpdated)
 	Q_PROPERTY(LinphoneEnums::MediaEncryption encryption READ getEncryption NOTIFY securityUpdated)
@@ -147,6 +148,7 @@ public:
 
 	QString getRemoteAddress() const;
 	QString getLocalAddress() const;
+	int getAcceptAfterSeconds() const;
 
 	QString getCallId() const;
 
@@ -341,6 +343,7 @@ private:
 	bool mIsSecured = false;
 	bool mIsMismatch = false;
 	int mDuration = 0;
+	int mAcceptAfterSeconds = 0;
 	float mQuality = 0;
 	bool mSpeakerMuted = false;
 	bool mMicrophoneMuted = false;
