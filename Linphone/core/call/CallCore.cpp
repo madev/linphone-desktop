@@ -119,6 +119,14 @@ CallCore::CallCore(const std::shared_ptr<linphone::Call> &call) : QObject(nullpt
 	videoDirection = remoteParams ? remoteParams->getVideoDirection() : linphone::MediaDirection::Inactive;
 	mRemoteVideoEnabled =
 	    videoDirection == linphone::MediaDirection::SendOnly || videoDirection == linphone::MediaDirection::SendRecv;
+	if (remoteParams) {
+		auto raw = remoteParams->getCustomHeader("X-Accept-After");
+		if (!raw.empty()) {
+			bool ok = false;
+			int n = Utils::coreStringToAppString(raw).trimmed().toInt(&ok);
+			if (ok && n > 0) mAcceptAfterSeconds = n;
+		}
+	}
 	mState = LinphoneEnums::fromLinphone(call->getState());
 	auto remoteAddress = call->getCallLog()->getRemoteAddress();
 	mRemoteAddress = Utils::coreStringToAppString(remoteAddress->asStringUriOnly());
@@ -523,6 +531,10 @@ QString CallCore::getLocalAddress() const {
 
 QString CallCore::getCallId() const {
 	return mCallId;
+}
+
+int CallCore::getAcceptAfterSeconds() const {
+	return mAcceptAfterSeconds;
 }
 
 LinphoneEnums::CallStatus CallCore::getStatus() const {

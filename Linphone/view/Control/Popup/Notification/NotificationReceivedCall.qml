@@ -21,6 +21,10 @@ Notification {
 	property var status: call.core.status
 	property var conference: call.core.conference
 
+	readonly property int autoAnswerSeconds: (call && call.core) ? call.core.acceptAfterSeconds : 0
+	property int remainingSeconds: autoAnswerSeconds
+	property bool autoAccepted: false
+
 	onStateChanged:{
 		if (state != LinphoneEnums.CallState.IncomingReceived){
 			close()
@@ -28,6 +32,24 @@ Notification {
 	}
 	onStatusChanged:{
 		console.log("status", status)
+	}
+
+	Timer {
+		interval: 1000
+		repeat: true
+		running: mainItem.autoAnswerSeconds > 0
+		         && mainItem.state === LinphoneEnums.CallState.IncomingReceived
+		         && !mainItem.autoAccepted
+		onTriggered: {
+			mainItem.remainingSeconds = mainItem.remainingSeconds - 1
+			console.warn("[NotificationReceivedCall] tick remainingSeconds=" + mainItem.remainingSeconds)
+			if (mainItem.remainingSeconds <= 1 && !mainItem.autoAccepted) {
+				mainItem.autoAccepted = true
+				console.warn("[NotificationReceivedCall] Auto-accept fired, calling lAccept(false)")
+				UtilsCpp.openCallsWindow(mainItem.call)
+				mainItem.call.core.lAccept(false)
+			}
+		}
 	}
 	
 	Popup {
@@ -115,7 +137,9 @@ Notification {
                         icon.width: Utils.getSizeWithScreenRatio(19)
                         icon.height: Utils.getSizeWithScreenRatio(19)
                         //: "Accepter"
-                        text: qsTr("dialog_accept")
+                        text: mainItem.autoAnswerSeconds > 0
+                              ? qsTr("dialog_accept") + " (" + mainItem.remainingSeconds + ")"
+                              : qsTr("dialog_accept")
                         textSize: Utils.getSizeWithScreenRatio(14)
                         textWeight: Utils.getSizeWithScreenRatio(500)
 						onClicked: {
@@ -127,6 +151,7 @@ Notification {
 					Button {
                         spacing: Utils.getSizeWithScreenRatio(6)
 						style: ButtonStyle.phoneRed
+                        visible: mainItem.autoAnswerSeconds <= 0
                         Layout.preferredWidth: Utils.getSizeWithScreenRatio(118)
                         Layout.preferredHeight: Utils.getSizeWithScreenRatio(32)
 						asynchronous: false
